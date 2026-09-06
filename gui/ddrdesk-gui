@@ -111,6 +111,20 @@ class Window(QWidget):
         nl.addWidget(self.endpoints)
         root.addWidget(net)
 
+        ios = QGroupBox("iPhone / iPad app (no Mac, no Xcode)")
+        il = QVBoxLayout(ios)
+        self.ios_label = QLabel("Checking GitHub Actions IPA…")
+        self.ios_label.setWordWrap(True)
+        self.ios_label.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        il.addWidget(self.ios_label)
+        irow = QHBoxLayout()
+        self.btn_ios_copy = QPushButton("Copy install page")
+        self.btn_ios_open = QPushButton("Open install page")
+        irow.addWidget(self.btn_ios_copy)
+        irow.addWidget(self.btn_ios_open)
+        il.addLayout(irow)
+        root.addWidget(ios)
+
         logs = QGroupBox("Logs")
         ll = QVBoxLayout(logs)
         self.log = QPlainTextEdit()
@@ -126,6 +140,10 @@ class Window(QWidget):
         self.btn_stop.clicked.connect(lambda: self.svc("stop"))
         self.btn_restart.clicked.connect(lambda: self.svc("restart"))
         self.boot.toggled.connect(self.on_boot)
+        self.btn_ios_copy.clicked.connect(self.copy_ios_page)
+        self.btn_ios_open.clicked.connect(self.open_ios_page)
+        self._ios = {}
+        self._ios_tick = 0
 
         self._boot_guard = False
         self.timer = QTimer(self)
@@ -169,6 +187,25 @@ class Window(QWidget):
                 + "\n\nIf sudo asks for a password, run:\n  sudo visudo -f /etc/sudoers.d/ddrdesk",
             )
         self.refresh()
+
+    def copy_ios_page(self) -> None:
+        QGuiApplication.clipboard().setText("https://ddr-ai.github.io/ddrdesk-ios/")
+        self.status_pill.setText("Install page copied — open it on the iPhone")
+
+    def open_ios_page(self) -> None:
+        run(["xdg-open", "https://ddr-ai.github.io/ddrdesk-ios/"])
+
+    def fetch_ios(self) -> dict:
+        try:
+            import urllib.request
+            req = urllib.request.Request(
+                "https://github.com/ddr-ai/ddrdesk-ios/releases/download/unsigned-ipa/latest.json",
+                headers={"User-Agent": "ddrdesk-gui"},
+            )
+            with urllib.request.urlopen(req, timeout=6) as r:
+                return json.loads(r.read().decode())
+        except Exception:
+            return self._ios
 
     def on_boot(self, checked: bool) -> None:
         if self._boot_guard:
@@ -215,6 +252,17 @@ class Window(QWidget):
         self.btn_start.setEnabled(not running)
         self.btn_stop.setEnabled(running)
 
+        self._ios_tick += 1
+        if self._ios_tick % 15 == 1:
+            self._ios = self.fetch_ios()
+        if self._ios:
+            self.ios_label.setText(
+                f"Latest IPA from GitHub Actions: {self._ios.get('version','?')} "
+                f"(build {self._ios.get('build','?')})\n"
+                "Open the install page on the iPhone (AltStore / SideStore / Feather / ESign). "
+                "No Apple computer required.\n"
+                "https://ddr-ai.github.io/ddrdesk-ios/"
+            )
         logs = run(
             ["journalctl", "-u", "ddrdesk", "-n", "40", "--no-pager", "-o", "short-iso"],
             timeout=3,
