@@ -19,6 +19,7 @@ pub const REQUEST_KEYFRAME: u8 = 0x09;
 pub const STATUS: u8 = 0x0A;
 pub const GOODBYE: u8 = 0x0B;
 pub const BITRATE_HINT: u8 = 0x0C;
+pub const CURSOR: u8 = 0x0D;
 
 pub const VIDEO_FLAG_KEY: u8 = 0x01;
 
@@ -100,6 +101,15 @@ pub struct Status {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BitrateHint {
     pub kbps: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CursorPos {
+    pub x: f32,
+    pub y: f32,
+    pub w: u32,
+    pub h: u32,
+    pub visible: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

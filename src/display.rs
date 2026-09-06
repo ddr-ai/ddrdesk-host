@@ -38,6 +38,27 @@ pub fn session_live() -> bool {
             || std::path::Path::new(&format!("{runtime}/wayland-1")).exists())
 }
 
+/// Logical size of the primary output (the coordinate space KWin uses for the pointer).
+pub fn logical_size() -> (u32, u32) {
+    if let Ok(out) = kscreen(&["-o"]) {
+        let text = String::from_utf8_lossy(&out.stdout);
+        for line in text.lines() {
+            let t = line.trim();
+            if let Some(rest) = t.strip_prefix("Geometry:") {
+                // Geometry: 0,0 1920x1200
+                if let Some(wh) = rest.split_whitespace().nth(1) {
+                    if let Some((w, h)) = wh.split_once('x') {
+                        if let (Ok(w), Ok(h)) = (w.parse::<u32>(), h.parse::<u32>()) {
+                            return (w.max(1), h.max(1));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    (1920, 1200)
+}
+
 fn kscreen(args: &[&str]) -> Result<std::process::Output> {
     let mut cmd = Command::new("kscreen-doctor");
     for (k, v) in session_env() {

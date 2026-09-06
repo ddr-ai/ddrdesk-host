@@ -17,7 +17,7 @@ use crate::flv::NalUnit;
 use crate::id::format_id;
 use crate::input::Injector;
 use crate::proto::{
-    self, AuthFail, BitrateHint, ClientHello, InputEvent, ServerHello, Status, Viewport,
+    self, AuthFail, BitrateHint, ClientHello, CursorPos, InputEvent, ServerHello, Status, Viewport,
     VIDEO_FLAG_KEY,
 };
 use crate::tls::Tls;
@@ -189,10 +189,25 @@ async fn run_session(
     let mut pointer_scale = pointer_scale_for(&vp, enc_w, enc_h);
     let mut last_enc = (enc_w, enc_h);
     let mut frames_sent = 0u64;
+    let mut cursor_tick = tokio::time::interval(Duration::from_millis(50));
 
     loop {
         tokio::select! {
             biased;
+            _ = cursor_tick.tick() => {
+                if let Some(inj) = injector.as_ref() {
+                    let cur = CursorPos {
+                        x: inj.x as f32,
+                        y: inj.y as f32,
+                        w: inj.screen_w.max(1) as u32,
+                        h: inj.screen_h.max(1) as u32,
+                        visible: true,
+                    };
+                    if proto::write_frame(&mut wr, proto::CURSOR, &serde_json::to_vec(&cur)?).await.is_err() {
+                        break;
+                    }
+                }
+            }
             frame = proto::read_frame(&mut rd) => {
                 let (typ, payload) = match frame {
                     Ok(v) => v,
@@ -229,9 +244,27 @@ async fn run_session(
                         proto::write_frame(&mut wr, proto::SERVER_HELLO, &serde_json::to_vec(&hello_update)?).await?;
                     }
                     proto::INPUT => {
-                        let ev: InputEvent = serde_json::from_slice(&payload)?;
+                        tracing::debug!("input {}", String::from_utf8_lossy(&payload));
+                        let ev: InputEvent = match serde_json::from_slice(&payload) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                tracing::warn!("bad input json: {e} {}", String::from_utf8_lossy(&payload));
+                                continue;
+                            }
+                        };
                         if let Some(inj) = injector.as_mut() {
+                            let moved = matches!(ev, InputEvent::Move { .. });
                             apply_input(inj, ev, pointer_scale);
+                            if moved {
+                                let cur = CursorPos {
+                                    x: inj.x as f32,
+                                    y: inj.y as f32,
+                                    w: inj.screen_w as u32,
+                                    h: inj.screen_h as u32,
+                                    visible: true,
+                                };
+                                proto::write_frame(&mut wr, proto::CURSOR, &serde_json::to_vec(&cur)?).await?;
+                            }
                         }
                     }
                     proto::PING => {
@@ -248,14 +281,8 @@ async fn run_session(
                     }
                     proto::BITRATE_HINT => {
                         if let Ok(h) = serde_json::from_slice::<BitrateHint>(&payload) {
-                            let kbps = h.kbps.clamp(800, 25000);
-                            if kbps.abs_diff(params.kbps) > 500 {
-                                params.kbps = kbps;
-                                capture.stop();
-                                let (nvtx, nvrx) = mpsc::channel::<NalUnit>(8);
-                                vrx = nvrx;
-                                capture = Capture::start(&params, nvtx)?;
-                            }
+                            // Don't restart the encoder mid-session — that froze the phone picture.
+                            params.kbps = h.kbps.clamp(800, 25000);
                         }
                     }
                     proto::GOODBYE => break,

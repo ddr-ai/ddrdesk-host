@@ -3,6 +3,10 @@ use evdev::{uinput::VirtualDeviceBuilder, AttributeSet, EventType, InputEvent, K
 
 pub struct Injector {
     dev: evdev::uinput::VirtualDevice,
+    pub x: i32,
+    pub y: i32,
+    pub screen_w: i32,
+    pub screen_h: i32,
 }
 
 impl Injector {
@@ -27,13 +31,22 @@ impl Injector {
             .build()?;
         // Give udev/logind a moment to attach the device to seat0.
         std::thread::sleep(std::time::Duration::from_millis(80));
-        Ok(Self { dev })
+        let (sw, sh) = crate::display::logical_size();
+        Ok(Self {
+            dev,
+            x: (sw / 2) as i32,
+            y: (sh / 2) as i32,
+            screen_w: sw.max(1) as i32,
+            screen_h: sh.max(1) as i32,
+        })
     }
 
     pub fn move_rel(&mut self, dx: i32, dy: i32) -> Result<()> {
         if dx == 0 && dy == 0 {
             return Ok(());
         }
+        self.x = (self.x + dx).clamp(0, self.screen_w.saturating_sub(1));
+        self.y = (self.y + dy).clamp(0, self.screen_h.saturating_sub(1));
         let mut evs = Vec::new();
         if dx != 0 {
             evs.push(rel(RelativeAxisType::REL_X, dx));
@@ -75,6 +88,7 @@ impl Injector {
     }
 
     pub fn key(&mut self, name: &str, down: bool) -> Result<()> {
+        tracing::info!("key {name} down={down}");
         let key = match name.to_ascii_lowercase().as_str() {
             "return" | "enter" => Key::KEY_ENTER,
             "backspace" => Key::KEY_BACKSPACE,
@@ -109,6 +123,7 @@ impl Injector {
     }
 
     pub fn text(&mut self, s: &str) -> Result<()> {
+        tracing::info!("type {s:?}");
         for ch in s.chars() {
             self.type_char(ch)?;
         }
