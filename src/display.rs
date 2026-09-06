@@ -178,14 +178,12 @@ pub fn restore() {
     }
 }
 
-/// Encode the physical desktop in landscape. Portrait phones letterbox on the
-/// client — stretching a 16:10 panel into 884x1920 produced a black stream.
-pub fn encode_size(vp: &Viewport) -> (u32, u32) {
-    if vp.w >= vp.h && vp.w > 0 && vp.h > 0 {
-        fit_even(vp.w, vp.h, 1600, 1000)
-    } else {
-        fit_even(1600, 1000, 1600, 1000)
-    }
+/// Encode the physical desktop at a size that does **not** depend on phone
+/// orientation. Rotating the client used to change 1600x738 ↔ 1600x1000,
+/// which restarted gpu-screen-recorder and froze the picture.
+pub fn encode_size(_vp: &Viewport) -> (u32, u32) {
+    let (sw, sh) = logical_size();
+    fit_even(sw.max(640), sh.max(400), 1600, 1000)
 }
 
 /// Pick a host mode + scale so logical size stays close to the client's

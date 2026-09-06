@@ -187,7 +187,7 @@ async fn run_session(
     let mut capture = Capture::start(&params, vtx.clone())?;
 
     let mut pointer_scale = pointer_scale_for(&vp, enc_w, enc_h);
-    let mut last_enc = (enc_w, enc_h);
+    let last_enc = (enc_w, enc_h);
     let mut frames_sent = 0u64;
     let mut cursor_tick = tokio::time::interval(Duration::from_millis(50));
 
@@ -219,29 +219,13 @@ async fn run_session(
                 match typ {
                     proto::VIEWPORT => {
                         let vp: Viewport = serde_json::from_slice(&payload)?;
-                        tracing::info!("viewport {}x{} {}", vp.w, vp.h, vp.orientation);
-                        let (w, h) = display::apply_viewport(&vp);
-                        pointer_scale = pointer_scale_for(&vp, w, h);
-                        let restart = w.abs_diff(last_enc.0) > 64 || h.abs_diff(last_enc.1) > 64;
-                        if restart {
-                            params.width = w;
-                            params.height = h;
-                            last_enc = (w, h);
-                            capture.stop();
-                            let (nvtx, nvrx) = mpsc::channel::<NalUnit>(8);
-                            vrx = nvrx;
-                            capture = Capture::start(&params, nvtx)?;
-                        }
-                        let hello_update = ServerHello {
-                            ok: true,
-                            name: state.hostname.clone(),
-                            fp: state.tls.fingerprint.clone(),
-                            endpoints: state.endpoints.clone(),
-                            screen_w: if restart { w } else { last_enc.0 },
-                            screen_h: if restart { h } else { last_enc.1 },
-                            session: sh.session.clone(),
-                        };
-                        proto::write_frame(&mut wr, proto::SERVER_HELLO, &serde_json::to_vec(&hello_update)?).await?;
+                        tracing::info!(
+                            "viewport {}x{} {} (keep encoder {}x{})",
+                            vp.w, vp.h, vp.orientation, last_enc.0, last_enc.1
+                        );
+                        pointer_scale = pointer_scale_for(&vp, last_enc.0, last_enc.1);
+                        // Do not reconfigure kscreen or restart capture. Phone
+                        // rotation only letterboxes the existing landscape stream.
                     }
                     proto::INPUT => {
                         tracing::debug!("input {}", String::from_utf8_lossy(&payload));
