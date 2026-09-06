@@ -160,6 +160,13 @@ async fn run_session(
         })?,
     )
     .await?;
+    crate::status::client_connected();
+    crate::status::write(
+        &state.id,
+        &state.hostname,
+        &state.endpoints,
+        &state.tls.fingerprint,
+    );
 
     let mut injector = match Injector::new() {
         Ok(i) => Some(i),
@@ -169,7 +176,7 @@ async fn run_session(
         }
     };
 
-    let (vtx, mut vrx) = mpsc::channel::<NalUnit>(8);
+    let (vtx, mut vrx) = mpsc::channel::<NalUnit>(64);
     let mut params = CaptureParams {
         width: enc_w,
         height: enc_h,
@@ -180,6 +187,8 @@ async fn run_session(
     let mut capture = Capture::start(&params, vtx.clone())?;
 
     let mut pointer_scale = pointer_scale_for(&vp, enc_w, enc_h);
+    let mut last_enc = (enc_w, enc_h);
+    let mut frames_sent = 0u64;
 
     loop {
         tokio::select! {
@@ -198,19 +207,23 @@ async fn run_session(
                         tracing::info!("viewport {}x{} {}", vp.w, vp.h, vp.orientation);
                         let (w, h) = display::apply_viewport(&vp);
                         pointer_scale = pointer_scale_for(&vp, w, h);
-                        params.width = w;
-                        params.height = h;
-                        capture.stop();
-                        let (nvtx, nvrx) = mpsc::channel::<NalUnit>(8);
-                        vrx = nvrx;
-                        capture = Capture::start(&params, nvtx)?;
+                        let restart = w.abs_diff(last_enc.0) > 64 || h.abs_diff(last_enc.1) > 64;
+                        if restart {
+                            params.width = w;
+                            params.height = h;
+                            last_enc = (w, h);
+                            capture.stop();
+                            let (nvtx, nvrx) = mpsc::channel::<NalUnit>(8);
+                            vrx = nvrx;
+                            capture = Capture::start(&params, nvtx)?;
+                        }
                         let hello_update = ServerHello {
                             ok: true,
                             name: state.hostname.clone(),
                             fp: state.tls.fingerprint.clone(),
                             endpoints: state.endpoints.clone(),
-                            screen_w: w,
-                            screen_h: h,
+                            screen_w: if restart { w } else { last_enc.0 },
+                            screen_h: if restart { h } else { last_enc.1 },
                             session: sh.session.clone(),
                         };
                         proto::write_frame(&mut wr, proto::SERVER_HELLO, &serde_json::to_vec(&hello_update)?).await?;
@@ -257,6 +270,10 @@ async fn run_session(
                         if proto::write_frame(&mut wr, proto::VIDEO, &payload).await.is_err() {
                             break;
                         }
+                        frames_sent += 1;
+                        if frames_sent <= 3 {
+                            tracing::info!("sent video frame #{frames_sent} {} bytes", payload.len());
+                        }
                     }
                     None => {
                         sleep(Duration::from_millis(20)).await;
@@ -268,6 +285,14 @@ async fn run_session(
 
     capture.stop();
     display::restore();
+    crate::status::client_disconnected();
+    crate::status::write(
+        &state.id,
+        &state.hostname,
+        &state.endpoints,
+        &state.tls.fingerprint,
+    );
+    tracing::info!("session {addr} ended, sent {frames_sent} video frames");
     Ok(())
 }
 

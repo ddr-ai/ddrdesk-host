@@ -1,0 +1,3 @@
+# Allow the desktop GUI to start/stop the host without a password prompt.
+# Installed as /etc/sudoers.d/ddrdesk
+%wheel ALL=(root) NOPASSWD: /usr/local/bin/ddrdesk-ctl

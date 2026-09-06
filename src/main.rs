@@ -6,6 +6,7 @@ mod id;
 mod input;
 mod net;
 mod proto;
+mod status;
 mod stun;
 mod tls;
 
@@ -92,6 +93,8 @@ async fn main() -> Result<()> {
     tracing::info!("connection ID: {}", format_id(&id));
     tracing::info!("endpoints: {}", endpoints.join(", "));
     tracing::info!("tls {}", tls.fingerprint);
+
+    crate::status::write(&id, &hostname, &endpoints, &tls.fingerprint);
 
     let state = Arc::new(HostState {
         id,

@@ -157,6 +157,16 @@ pub fn restore() {
     }
 }
 
+/// Encode the physical desktop in landscape. Portrait phones letterbox on the
+/// client — stretching a 16:10 panel into 884x1920 produced a black stream.
+pub fn encode_size(vp: &Viewport) -> (u32, u32) {
+    if vp.w >= vp.h && vp.w > 0 && vp.h > 0 {
+        fit_even(vp.w, vp.h, 1600, 1000)
+    } else {
+        fit_even(1600, 1000, 1600, 1000)
+    }
+}
+
 /// Pick a host mode + scale so logical size stays close to the client's
 /// point size (readable without pinch-zoom) and the full desktop fits.
 pub fn apply_viewport(vp: &Viewport) -> (u32, u32) {
@@ -172,11 +182,7 @@ pub fn apply_viewport(vp: &Viewport) -> (u32, u32) {
         vp.h as f32 / vp.scale.max(1.0)
     };
 
-    // Encode size: even, capped, matching client aspect.
-    let (mut enc_w, mut enc_h) = fit_even(vp.w, vp.h, 1920, 1200);
-    if portrait {
-        (enc_w, enc_h) = fit_even(vp.w.min(vp.h), vp.w.max(vp.h), 1200, 1920);
-    }
+    let (enc_w, enc_h) = encode_size(vp);
 
     if !session_live() {
         tracing::info!("no Plasma session yet; encoder will scale to {enc_w}x{enc_h}");
@@ -198,22 +204,19 @@ pub fn apply_viewport(vp: &Viewport) -> (u32, u32) {
     }
 
     let modes = parse_modes(&out);
-    let rotation = if portrait { "right" } else { "none" };
+    // Never rotate the laptop panel — GSR captures the DRM plane as landscape.
 
-    // Target logical pixels ≈ client points, with a floor so Plasma chrome still fits.
+    // Target logical pixels ≈ the longer client side so UI stays readable.
+    let long_pts = pts_w.max(pts_h);
     let (target_lw, target_lh) = if portrait {
-        (pts_w.max(600.0), pts_h.max(800.0))
+        (long_pts.max(800.0), (long_pts.max(800.0) * 10.0 / 16.0).max(500.0))
     } else {
         (pts_w.max(800.0), pts_h.max(500.0))
     };
 
     let mut best: Option<(String, f32, f32)> = None; // mode, scale, score
     for (mw, mh, hz, label) in &modes {
-        let (lw, lh) = if portrait {
-            (*mh as f32, *mw as f32)
-        } else {
-            (*mw as f32, *mh as f32)
-        };
+        let (lw, lh) = (*mw as f32, *mh as f32);
         for scale in [1.0f32, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 3.0] {
             let log_w = lw / scale;
             let log_h = lh / scale;
@@ -231,13 +234,9 @@ pub fn apply_viewport(vp: &Viewport) -> (u32, u32) {
     if let Some((mode, scale, _)) = best {
         let spec_mode = format!("output.{}.mode.{mode}", primary.name);
         let spec_scale = format!("output.{}.scale.{scale}", primary.name);
-        let spec_rot = format!("output.{}.rotation.{rotation}", primary.name);
-        match kscreen(&[&spec_mode, &spec_scale, &spec_rot]) {
+        match kscreen(&[&spec_mode, &spec_scale]) {
             Ok(o) if o.status.success() => {
-                tracing::info!(
-                    "display {} -> mode {mode} scale {scale} rot {rotation}",
-                    primary.name
-                );
+                tracing::info!("display {} -> mode {mode} scale {scale}", primary.name);
             }
             Ok(o) => tracing::warn!(
                 "kscreen apply failed: {}",

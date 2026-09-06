@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Narrow helper for the GUI. Invoked via sudo -n (see sudoers.d/ddrdesk).
+set -euo pipefail
+umask 022
+action="${1:-}"
+case "$action" in
+  start)   exec systemctl start ddrdesk.service ;;
+  stop)    exec systemctl stop ddrdesk.service ;;
+  restart) exec systemctl restart ddrdesk.service ;;
+  enable)  exec systemctl enable ddrdesk.service ;;
+  disable) exec systemctl disable ddrdesk.service ;;
+  status)
+    systemctl is-active ddrdesk.service || true
+    systemctl is-enabled ddrdesk.service || true
+    ;;
+  *)
+    echo "usage: ddrdesk-ctl start|stop|restart|enable|disable|status" >&2
+    exit 2
+    ;;
+esac

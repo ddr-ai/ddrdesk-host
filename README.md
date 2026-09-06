@@ -51,12 +51,23 @@ cd ddrdesk-host
 ddrdeskd --print-id
 ```
 
-The script builds a release binary, installs `/usr/local/bin/ddrdeskd`, a systemd unit, a uinput udev rule, linger, and the firewall port, then `enable --now ddrdesk`.
+The script builds a release binary, installs `/usr/local/bin/ddrdeskd`, the **DDRDesk** control GUI, a systemd unit, a uinput udev rule, linger, and the firewall port, then enables and starts `ddrdesk`.
+
+## Control GUI
+
+Launch **DDRDesk** from the application menu, or:
+
+```
+ddrdesk-gui
+```
+
+The panel shows the 9-digit ID, copy/new-ID, start/stop/restart, autostart at boot, endpoints, connected clients, and live logs.
 
 ## Usage
 
 | Action | Command |
 |---|---|
+| GUI | `ddrdesk-gui` |
 | Connection ID | `ddrdeskd --print-id` |
 | New ID | `ddrdeskd --regen-id` then `sudo systemctl restart ddrdesk` |
 | Status | `systemctl status ddrdesk` |
@@ -72,8 +83,8 @@ If nobody is logged in, the client shows the **Plasma Login Manager** greeter. T
 
 The client sends pixel size, point size, scale, and orientation. The host:
 
-1. Picks a `kscreen-doctor` mode + scale (and rotation for portrait) so Plasma’s *logical* size is close to the device’s point size.
-2. Tells GSR to encode at a matching even resolution (`-s WxH`).
+1. Picks a `kscreen-doctor` mode + scale so Plasma’s *logical* size stays readable. The laptop panel is not rotated (portrait phones letterbox).
+2. Encodes the landscape desktop at up to 1600×1000.
 3. Restores the previous laptop mode when the client disconnects.
 
 This applies to iPhone and iPad, portrait and landscape.

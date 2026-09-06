@@ -4,7 +4,7 @@ if [[ $EUID -ne 0 ]]; then
   exec sudo "$0" "$@"
 fi
 systemctl disable --now ddrdesk.service 2>/dev/null || true
-rm -f /etc/systemd/system/ddrdesk.service /usr/local/bin/ddrdeskd /etc/udev/rules.d/99-ddrdesk.rules
+rm -f /etc/systemd/system/ddrdesk.service /usr/local/bin/ddrdeskd /usr/local/bin/ddrdesk-gui /usr/local/bin/ddrdesk-ctl /etc/udev/rules.d/99-ddrdesk.rules /usr/share/applications/ddrdesk.desktop /etc/sudoers.d/ddrdesk
 systemctl daemon-reload
 udevadm control --reload-rules
 if command -v firewall-cmd >/dev/null && firewall-cmd --state >/dev/null 2>&1; then

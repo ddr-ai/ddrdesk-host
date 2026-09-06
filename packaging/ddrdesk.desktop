@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=DDRDesk
+Comment=Remote desktop host controls
+Exec=/usr/local/bin/ddrdesk-gui
+Icon=computer
+Terminal=false
+Categories=Network;RemoteAccess;System;
+StartupNotify=true
+X-KDE-Shortcuts=Ctrl+Alt+D
