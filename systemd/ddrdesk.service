@@ -1,0 +1,31 @@
+[Unit]
+Description=DDRDesk remote desktop host
+Documentation=https://github.com/ddr-ai/ddrdesk-host
+After=network-online.target systemd-logind.service user@1000.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ddr
+Group=ddr
+SupplementaryGroups=input video render
+Environment=HOME=/home/ddr
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=XDG_CURRENT_DESKTOP=KDE
+Environment=RUST_LOG=info
+ExecStart=/usr/local/bin/ddrdeskd
+Restart=always
+RestartSec=2
+TimeoutStopSec=10
+KillMode=mixed
+# Keep running across logout / lock / display-manager restart.
+RemainAfterExit=no
+StandardOutput=journal
+StandardError=journal
+
+# gsr-kms-server is invoked as a child and carries its own cap_sys_admin file cap.
+NoNewPrivileges=false
+LimitNOFILE=65535
+
+[Install]
+WantedBy=multi-user.target
