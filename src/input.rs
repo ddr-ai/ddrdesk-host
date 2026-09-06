@@ -2,7 +2,8 @@ use anyhow::{Context, Result};
 use evdev::{uinput::VirtualDeviceBuilder, AttributeSet, EventType, InputEvent, Key, RelativeAxisType};
 
 pub struct Injector {
-    dev: evdev::uinput::VirtualDevice,
+    mouse: evdev::uinput::VirtualDevice,
+    kbd: evdev::uinput::VirtualDevice,
     pub x: i32,
     pub y: i32,
     pub screen_w: i32,
@@ -15,6 +16,10 @@ impl Injector {
         for k in ALL_KEYS {
             keys.insert(*k);
         }
+        let mut btns = AttributeSet::<Key>::new();
+        btns.insert(Key::BTN_LEFT);
+        btns.insert(Key::BTN_RIGHT);
+        btns.insert(Key::BTN_MIDDLE);
         let mut rel = AttributeSet::<RelativeAxisType>::new();
         rel.insert(RelativeAxisType::REL_X);
         rel.insert(RelativeAxisType::REL_Y);
@@ -23,17 +28,25 @@ impl Injector {
         rel.insert(RelativeAxisType::REL_WHEEL_HI_RES);
         rel.insert(RelativeAxisType::REL_HWHEEL_HI_RES);
 
-        let dev = VirtualDeviceBuilder::new()
+        // Separate keyboard and mouse. A combined device is classified as a
+        // pointer and KWin/libinput drops KEY_* (typing never reaches the host).
+        let mouse = VirtualDeviceBuilder::new()
             .context("open /dev/uinput — add udev rule and group 'input'")?
-            .name("DDRDesk Remote")
-            .with_keys(&keys)?
+            .name("DDRDesk Mouse")
+            .with_keys(&btns)?
             .with_relative_axes(&rel)?
             .build()?;
-        // Give udev/logind a moment to attach the device to seat0.
-        std::thread::sleep(std::time::Duration::from_millis(80));
+        let kbd = VirtualDeviceBuilder::new()
+            .context("open /dev/uinput for keyboard")?
+            .name("DDRDesk Keyboard")
+            .with_keys(&keys)?
+            .build()?;
+        std::thread::sleep(std::time::Duration::from_millis(120));
         let (sw, sh) = crate::display::logical_size();
+        tracing::info!("uinput mouse+keyboard ready, screen {sw}x{sh}");
         Ok(Self {
-            dev,
+            mouse,
+            kbd,
             x: (sw / 2) as i32,
             y: (sh / 2) as i32,
             screen_w: sw.max(1) as i32,
@@ -55,7 +68,7 @@ impl Injector {
             evs.push(rel(RelativeAxisType::REL_Y, dy));
         }
         evs.push(syn());
-        self.dev.emit(&evs)?;
+        self.mouse.emit(&evs)?;
         Ok(())
     }
 
@@ -67,7 +80,7 @@ impl Injector {
             _ => Key::BTN_LEFT,
         };
         let v = if down { 1 } else { 0 };
-        self.dev.emit(&[key_ev(key, v), syn()])?;
+        self.mouse.emit(&[key_ev(key, v), syn()])?;
         Ok(())
     }
 
@@ -83,7 +96,7 @@ impl Injector {
             return Ok(());
         }
         evs.push(syn());
-        self.dev.emit(&evs)?;
+        self.mouse.emit(&evs)?;
         Ok(())
     }
 
@@ -117,7 +130,7 @@ impl Injector {
                 }
             }
         };
-        self.dev
+        self.kbd
             .emit(&[key_ev(key, if down { 1 } else { 0 }), syn()])?;
         Ok(())
     }
@@ -146,13 +159,13 @@ impl Injector {
         }
         // Linux Unicode: Ctrl+Shift+U, hex, enter. Works in many Qt/GTK fields.
         let hex = format!("{:x}", ch as u32);
-        self.dev.emit(&[
+        self.kbd.emit(&[
             key_ev(Key::KEY_LEFTCTRL, 1),
             key_ev(Key::KEY_LEFTSHIFT, 1),
             syn(),
         ])?;
         self.tap(Key::KEY_U, false)?;
-        self.dev.emit(&[
+        self.kbd.emit(&[
             key_ev(Key::KEY_LEFTCTRL, 0),
             key_ev(Key::KEY_LEFTSHIFT, 0),
             syn(),
@@ -178,7 +191,7 @@ impl Injector {
             evs.push(key_ev(Key::KEY_LEFTSHIFT, 0));
         }
         evs.push(syn());
-        self.dev.emit(&evs)?;
+        self.kbd.emit(&evs)?;
         Ok(())
     }
 }
