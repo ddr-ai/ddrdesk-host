@@ -20,6 +20,7 @@ pub const STATUS: u8 = 0x0A;
 pub const GOODBYE: u8 = 0x0B;
 pub const BITRATE_HINT: u8 = 0x0C;
 pub const CURSOR: u8 = 0x0D;
+pub const UI_SCALE: u8 = 0x0E;
 
 pub const VIDEO_FLAG_KEY: u8 = 0x01;
 
@@ -110,6 +111,11 @@ pub struct CursorPos {
     pub w: u32,
     pub h: u32,
     pub visible: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UiScale {
+    pub factor: f32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

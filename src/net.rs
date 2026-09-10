@@ -219,6 +219,18 @@ async fn run_session(
                     }
                 };
                 match typ {
+                    proto::UI_SCALE => {
+                        if let Ok(s) = serde_json::from_slice::<crate::proto::UiScale>(&payload) {
+                            tracing::info!("ui scale {}", s.factor);
+                            display::apply_ui_scale(s.factor);
+                            let (sw, sh) = display::logical_size();
+                            if let Some(inj) = injector.as_mut() {
+                                inj.screen_w = sw.max(1) as i32;
+                                inj.screen_h = sh.max(1) as i32;
+                            }
+                            pointer_scale = pointer_scale_for(&vp, last_enc.0, last_enc.1);
+                        }
+                    }
                     proto::VIEWPORT => {
                         let vp: Viewport = serde_json::from_slice(&payload)?;
                         tracing::info!(

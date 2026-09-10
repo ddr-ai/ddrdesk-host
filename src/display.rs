@@ -178,6 +178,51 @@ pub fn restore() {
     }
 }
 
+/// Raise Plasma's output scale so fonts/icons/widgets render larger in the
+/// captured framebuffer. The phone still letterboxes the full desktop (no overflow).
+pub fn apply_ui_scale(factor: f32) {
+    let factor = snap_scale(factor.clamp(1.0, 3.0));
+    if !session_live() {
+        tracing::warn!("ui scale {factor}: no Plasma session");
+        return;
+    }
+    if SAVED.lock().unwrap().is_none() {
+        let _ = save_current();
+    }
+    let name = SAVED
+        .lock()
+        .unwrap()
+        .as_ref()
+        .map(|s| s.name.clone())
+        .or_else(|| {
+            kscreen(&["-o"])
+                .ok()
+                .and_then(|o| parse_primary(&String::from_utf8_lossy(&o.stdout)).map(|p| p.name))
+        });
+    let Some(name) = name else {
+        tracing::warn!("ui scale: no output");
+        return;
+    };
+    let spec = format!("output.{name}.scale.{factor}");
+    match kscreen(&[&spec]) {
+        Ok(o) if o.status.success() => tracing::info!("ui scale {name} -> {factor}"),
+        Ok(o) => tracing::warn!(
+            "ui scale failed: {}",
+            String::from_utf8_lossy(&o.stderr)
+        ),
+        Err(e) => tracing::warn!("ui scale: {e}"),
+    }
+}
+
+fn snap_scale(v: f32) -> f32 {
+    let steps = [1.0, 1.25, 1.5, 1.75, 2.0, 2.25, 2.5, 2.75, 3.0];
+    steps
+        .iter()
+        .copied()
+        .min_by(|a, b| (a - v).abs().partial_cmp(&(b - v).abs()).unwrap())
+        .unwrap_or(1.5)
+}
+
 /// Encode the physical desktop at a size that does **not** depend on phone
 /// orientation. Rotating the client used to change 1600x738 ↔ 1600x1000,
 /// which restarted gpu-screen-recorder and froze the picture.
