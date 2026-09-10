@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 use tokio::io::split;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::{mpsc, Mutex};
-use tokio::time::sleep;
 use tokio_rustls::server::TlsStream;
 
 use crate::capture::{Capture, CaptureParams};
@@ -17,7 +16,7 @@ use crate::flv::NalUnit;
 use crate::id::format_id;
 use crate::input::Injector;
 use crate::proto::{
-    self, AuthFail, BitrateHint, ClientHello, CursorPos, InputEvent, ServerHello, Status, Viewport,
+    self, AuthFail, BitrateHint, ClientHello, InputEvent, ServerHello, Status, Viewport,
     VIDEO_FLAG_KEY,
 };
 use crate::tls::Tls;
@@ -69,6 +68,7 @@ pub async fn serve(state: Arc<HostState>) -> Result<()> {
     loop {
         let (tcp, addr) = listener.accept().await?;
         let _ = tcp.set_nodelay(true);
+        tune_tcp(&tcp);
         let state = state.clone();
         let active = active.clone();
         let rate = rate.clone();
@@ -176,12 +176,12 @@ async fn run_session(
         }
     };
 
-    let (vtx, mut vrx) = mpsc::channel::<NalUnit>(64);
+    let (vtx, mut vrx) = mpsc::channel::<NalUnit>(4);
     let mut params = CaptureParams {
         width: enc_w,
         height: enc_h,
-        fps: 30,
-        kbps: 8000,
+        fps: 60,
+        kbps: 0,
         monitor: crate::capture::detect_monitor(),
     };
     let mut capture = Capture::start(&params, vtx.clone())?;
@@ -189,22 +189,24 @@ async fn run_session(
     let mut pointer_scale = pointer_scale_for(&vp, enc_w, enc_h);
     let last_enc = (enc_w, enc_h);
     let mut frames_sent = 0u64;
-    let mut cursor_tick = tokio::time::interval(Duration::from_millis(50));
 
     loop {
         tokio::select! {
-            biased;
-            _ = cursor_tick.tick() => {
-                if let Some(inj) = injector.as_ref() {
-                    let cur = CursorPos {
-                        x: inj.x as f32,
-                        y: inj.y as f32,
-                        w: inj.screen_w.max(1) as u32,
-                        h: inj.screen_h.max(1) as u32,
-                        visible: true,
-                    };
-                    if proto::write_frame(&mut wr, proto::CURSOR, &serde_json::to_vec(&cur)?).await.is_err() {
-                        break;
+            au = vrx.recv() => {
+                match au {
+                    Some(au) => {
+                        let flags = if au.keyframe { VIDEO_FLAG_KEY } else { 0 };
+                        let payload = proto::video_payload(flags, au.pts_us, &au.data);
+                        if proto::write_frame(&mut wr, proto::VIDEO, &payload).await.is_err() {
+                            break;
+                        }
+                        frames_sent += 1;
+                        if frames_sent <= 3 {
+                            tracing::info!("sent video frame #{frames_sent} {} bytes", payload.len());
+                        }
+                    }
+                    None => {
+                        tokio::time::sleep(Duration::from_millis(4)).await;
                     }
                 }
             }
@@ -237,18 +239,7 @@ async fn run_session(
                             }
                         };
                         if let Some(inj) = injector.as_mut() {
-                            let moved = matches!(ev, InputEvent::Move { .. });
                             apply_input(inj, ev, pointer_scale);
-                            if moved {
-                                let cur = CursorPos {
-                                    x: inj.x as f32,
-                                    y: inj.y as f32,
-                                    w: inj.screen_w as u32,
-                                    h: inj.screen_h as u32,
-                                    visible: true,
-                                };
-                                proto::write_frame(&mut wr, proto::CURSOR, &serde_json::to_vec(&cur)?).await?;
-                            }
                         }
                     }
                     proto::PING => {
@@ -273,24 +264,6 @@ async fn run_session(
                     _ => {}
                 }
             }
-            au = vrx.recv() => {
-                match au {
-                    Some(au) => {
-                        let flags = if au.keyframe { VIDEO_FLAG_KEY } else { 0 };
-                        let payload = proto::video_payload(flags, au.pts_us, &au.data);
-                        if proto::write_frame(&mut wr, proto::VIDEO, &payload).await.is_err() {
-                            break;
-                        }
-                        frames_sent += 1;
-                        if frames_sent <= 3 {
-                            tracing::info!("sent video frame #{frames_sent} {} bytes", payload.len());
-                        }
-                    }
-                    None => {
-                        sleep(Duration::from_millis(20)).await;
-                    }
-                }
-            }
         }
     }
 
@@ -305,6 +278,36 @@ async fn run_session(
     );
     tracing::info!("session {addr} ended, sent {frames_sent} video frames");
     Ok(())
+}
+
+fn tune_tcp(tcp: &tokio::net::TcpStream) {
+    use std::os::fd::AsRawFd;
+    let fd = tcp.as_raw_fd();
+    unsafe {
+        let on: libc::c_int = 1;
+        libc::setsockopt(
+            fd,
+            libc::IPPROTO_TCP,
+            libc::TCP_NODELAY,
+            &on as *const _ as *const libc::c_void,
+            std::mem::size_of::<libc::c_int>() as u32,
+        );
+        libc::setsockopt(
+            fd,
+            libc::IPPROTO_TCP,
+            libc::TCP_QUICKACK,
+            &on as *const _ as *const libc::c_void,
+            std::mem::size_of::<libc::c_int>() as u32,
+        );
+        let buf: libc::c_int = 96 * 1024;
+        libc::setsockopt(
+            fd,
+            libc::SOL_SOCKET,
+            libc::SO_SNDBUF,
+            &buf as *const _ as *const libc::c_void,
+            std::mem::size_of::<libc::c_int>() as u32,
+        );
+    }
 }
 
 fn pointer_scale_for(vp: &Viewport, enc_w: u32, _enc_h: u32) -> f32 {

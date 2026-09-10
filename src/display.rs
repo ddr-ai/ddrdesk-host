@@ -183,7 +183,7 @@ pub fn restore() {
 /// which restarted gpu-screen-recorder and froze the picture.
 pub fn encode_size(_vp: &Viewport) -> (u32, u32) {
     let (sw, sh) = logical_size();
-    fit_even(sw.max(640), sh.max(400), 1600, 1000)
+    fit_even(sw.max(640), sh.max(400), 1280, 800)
 }
 
 /// Pick a host mode + scale so logical size stays close to the client's

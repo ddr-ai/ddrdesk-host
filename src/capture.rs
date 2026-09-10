@@ -35,8 +35,8 @@ impl Default for CaptureParams {
         Self {
             width: 1280,
             height: 800,
-            fps: 30,
-            kbps: 8000,
+            fps: 60,
+            kbps: 0,
             monitor: detect_monitor(),
         }
     }
@@ -177,15 +177,13 @@ fn spawn_gsr(params: &CaptureParams, fifo: &Path) -> Result<Child> {
             "-cursor",
             "yes",
             "-keyint",
-            "15",
+            "8",
             "-encoder",
             "gpu",
             "-fallback-cpu-encoding",
             "yes",
-            "-bm",
-            "cbr",
             "-q",
-            &kbps,
+            "ultra",
             "-tune",
             "performance",
             "-o",
