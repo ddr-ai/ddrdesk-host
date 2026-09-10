@@ -86,10 +86,14 @@ impl Injector {
 
     pub fn wheel(&mut self, dx: i32, dy: i32) -> Result<()> {
         let mut evs = Vec::new();
+        // 120 hi-res units = one notch. Emit both so KWin scrolls the widget
+        // under the pointer, focused or not.
         if dy != 0 {
+            evs.push(rel(RelativeAxisType::REL_WHEEL_HI_RES, dy * 120));
             evs.push(rel(RelativeAxisType::REL_WHEEL, dy));
         }
         if dx != 0 {
+            evs.push(rel(RelativeAxisType::REL_HWHEEL_HI_RES, dx * 120));
             evs.push(rel(RelativeAxisType::REL_HWHEEL, dx));
         }
         if evs.is_empty() {
